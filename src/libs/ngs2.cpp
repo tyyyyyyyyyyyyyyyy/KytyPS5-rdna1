@@ -3,6 +3,7 @@
 #include "common/assert.h"
 #include "common/logging/log.h"
 #include "common/threads.h"
+#include "kernel/fileSystem.h"
 #include "libs/ajm/atrac9_decoder.h"
 #include "libs/errno.h"
 #include "libs/libs.h"
@@ -14,10 +15,12 @@
 #include <cstddef>
 #include <cstring>
 #include <deque>
+#include <fstream>
 #include <limits>
 #include <magic_enum.hpp>
 #include <memory>
 #include <numbers>
+#include <string>
 #include <vector>
 
 #include "libatrac9.h"
@@ -1994,6 +1997,44 @@ int KYTY_SYSV_ABI Ngs2ParseWaveformData(const void* data, size_t data_size,
 
 	std::memset(info, 0, sizeof(Ngs2WaveformInfo));
 	return Ngs2ParseAtrac9Riff(data, data_size, info);
+}
+
+int KYTY_SYSV_ABI Ngs2ParseWaveformFile(const char* path, uint64_t offset,
+                                        Ngs2WaveformInfo* info) {
+	PRINT_NAME();
+	LOGF("\t path = '%s', offset = 0x%016" PRIx64 "\n", path != nullptr ? path : "(null)",
+	     static_cast<uint64_t>(offset));
+
+	if (info == nullptr) {
+		return NGS2_ERROR_INVALID_OUT_ADDRESS;
+	}
+	std::memset(info, 0, sizeof(Ngs2WaveformInfo));
+
+	if (path == nullptr) {
+		return NGS2_ERROR_INVALID_WAVEFORM_DATA;
+	}
+
+	const auto real_path = Libs::LibKernel::FileSystem::GetRealFilename(std::string(path));
+	std::ifstream file(real_path, std::ios::binary | std::ios::ate);
+	if (!file) {
+		LOGF("\t warning: cannot open waveform file '%s'\n", path);
+		return NGS2_ERROR_INVALID_WAVEFORM_DATA;
+	}
+
+	const auto end = static_cast<uint64_t>(file.tellg());
+	if (offset >= end) {
+		return NGS2_ERROR_INVALID_WAVEFORM_DATA;
+	}
+
+	const auto size = static_cast<size_t>(end - offset);
+	std::vector<uint8_t> data(size);
+	file.seekg(static_cast<std::streamoff>(offset));
+	file.read(reinterpret_cast<char*>(data.data()), static_cast<std::streamsize>(size));
+	if (!file) {
+		return NGS2_ERROR_INVALID_WAVEFORM_DATA;
+	}
+
+	return Ngs2ParseAtrac9Riff(data.data(), data.size(), info);
 }
 
 int KYTY_SYSV_ABI Ngs2CalcWaveformBlock(const Ngs2WaveformFormat* format, uint32_t sample_pos,
