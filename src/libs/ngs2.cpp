@@ -1088,6 +1088,63 @@ int KYTY_SYSV_ABI Ngs2SystemGetInfo(uintptr_t system_handle, Ngs2SystemInfo* inf
 	return OK;
 }
 
+struct Ngs2RackInfo {
+	char                  name[16]     = {};
+	uintptr_t             rack_handle  = 0;
+	Ngs2ContextBufferInfo buffer_info;
+	uintptr_t             owner_system_handle      = 0;
+	uint32_t              type                     = 0;
+	uint32_t              rack_id                  = 0;
+	uint32_t              uid                      = 0;
+	uint32_t              min_grain_samples        = 0;
+	uint32_t              max_grain_samples        = 0;
+	uint32_t              max_voices               = 0;
+	uint32_t              max_channel_works        = 0;
+	uint32_t              max_inputs               = 0;
+	uint32_t              max_matrices             = 0;
+	uint32_t              max_ports                = 0;
+	uint32_t              state_flags              = 0;
+	float                 last_process_ratio       = 0.0f;
+	uint64_t              last_process_tick        = 0;
+	uint64_t              render_count             = 0;
+	uint32_t              active_voice_count       = 0;
+	uint32_t              active_channel_work_count = 0;
+};
+static_assert(sizeof(Ngs2RackInfo) == 168);
+
+int KYTY_SYSV_ABI Ngs2RackGetInfo(uintptr_t rack_handle, Ngs2RackInfo* info, size_t info_size) {
+	PRINT_NAME();
+	LOGF("\t rack_handle = 0x%016" PRIx64 ", info_size = 0x%016" PRIx64 "\n",
+	     static_cast<uint64_t>(rack_handle), static_cast<uint64_t>(info_size));
+
+	if (info == nullptr) {
+		return NGS2_ERROR_INVALID_OUT_ADDRESS;
+	}
+
+	Ngs2RackInfo out {};
+	out.rack_handle       = rack_handle;
+	out.min_grain_samples = 64;
+	out.state_flags       = 1;
+
+	auto* rack = reinterpret_cast<Ngs2RackInternal*>(rack_handle);
+	if (rack != nullptr) {
+		out.buffer_info         = rack->buffer_info;
+		out.owner_system_handle = reinterpret_cast<uintptr_t>(rack->ngs);
+		out.type                = static_cast<uint32_t>(rack->type);
+		out.max_grain_samples   = rack->option.common.max_grain_samples;
+		out.max_voices          = rack->option.common.max_voices;
+		out.max_matrices        = rack->option.common.max_matrices;
+		out.max_ports           = rack->option.common.max_ports;
+		if (rack->ngs != nullptr) {
+			out.render_count = rack->ngs->render_count;
+		}
+	}
+
+	std::memcpy(info, &out, std::min(info_size, sizeof(out)));
+
+	return OK;
+}
+
 int KYTY_SYSV_ABI Ngs2SystemSetGrainSamples(uintptr_t system_handle, uint32_t num_samples) {
 	PRINT_NAME();
 	LOGF("\t system_handle = 0x%016" PRIx64 "\n"
