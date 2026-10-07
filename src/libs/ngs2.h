@@ -11,6 +11,7 @@ namespace Ngs2 {
 struct Ngs2SystemOption;
 struct Ngs2SystemInfo;
 struct Ngs2RackOption;
+struct Ngs2RackInfo;
 struct Ngs2BufferAllocator;
 struct Ngs2VoiceParamHeader;
 struct Ngs2RenderBufferInfo;
@@ -33,6 +34,7 @@ int KYTY_SYSV_ABI Ngs2SystemCreate(const Ngs2SystemOption*      option,
                                    const Ngs2ContextBufferInfo* buffer_info, uintptr_t* handle);
 int KYTY_SYSV_ABI Ngs2SystemGetInfo(uintptr_t system_handle, Ngs2SystemInfo* info,
                                     size_t info_size);
+int KYTY_SYSV_ABI Ngs2RackGetInfo(uintptr_t rack_handle, Ngs2RackInfo* info, size_t info_size);
 int KYTY_SYSV_ABI Ngs2SystemSetGrainSamples(uintptr_t system_handle, uint32_t num_samples);
 int KYTY_SYSV_ABI Ngs2RackQueryBufferSize(uint32_t rack_id, const Ngs2RackOption* option,
                                           Ngs2ContextBufferInfo* buffer_info);
