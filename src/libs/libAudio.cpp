@@ -1161,6 +1161,7 @@ LIB_DEFINE(InitAudio_1_Ngs2) {
 	LIB_FUNC("i0VnXM-C9fc", Ngs2::Ngs2SystemRender);
 	LIB_FUNC("l4Q2dWEH6UM", Ngs2::Ngs2SystemSetGrainSamples);
 	LIB_FUNC("hyVLT2VlOYk", Ngs2::Ngs2ParseWaveformData);
+	LIB_FUNC("iprCTXPVWMI", Ngs2::Ngs2ParseWaveformFile);
 	LIB_FUNC("3pCNbVM11UA", Ngs2::Ngs2CalcWaveformBlock);
 	LIB_FUNC("xa8oL9dmXkM", Ngs2::Ngs2PanInit);
 	LIB_FUNC("gbMKV+8Enuo", Ngs2::Ngs2PanGetVolumeMatrix);
