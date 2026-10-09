@@ -147,6 +147,25 @@ void EmitMeshEntryPoint(EmitterState& state) {
 	                                 TypeU32(state), ConstantU32(state, 0));
 	const auto primitives = MeshLoad(state, state.mesh_allocation, spv::StorageClassWorkgroup,
 	                                 TypeU32(state), ConstantU32(state, 1));
+	if (state.emulated_mesh) {
+		// Emulated compute mesh output routing
+		const auto local_id = EmitLocalInvocationIndex(state);
+		const auto is_zero = state.builder.AllocateId();
+		state.builder.AddFunction(spv::OpIEqual, TypeBool(state), is_zero,
+		                          local_id, ConstantU32(state, 0));
+		EmitIfCondition(state, is_zero, [&] {
+			const auto ptr_v = MeshElement(state, state.mesh_allocation, spv::StorageClassWorkgroup,
+			                               TypeU32(state), ConstantU32(state, 0));
+			state.builder.AddFunction(spv::OpStore, ptr_v, ConstantU32(state, 3u));
+			const auto ptr_p = MeshElement(state, state.mesh_allocation, spv::StorageClassWorkgroup,
+			                               TypeU32(state), ConstantU32(state, 1));
+			state.builder.AddFunction(spv::OpStore, ptr_p, ConstantU32(state, 1u));
+		});
+		EmitBarrier(state);
+		state.builder.AddFunction(spv::OpReturn);
+		state.builder.AddFunction(spv::OpFunctionEnd);
+		return;
+	}
 	state.builder.AddFunction(spv::OpSetMeshOutputsEXT, vertices,
 	                          primitives); // OpSetMeshOutputsEXT
 	for (uint32_t half = 0; half < state.lane_count; half++) {
