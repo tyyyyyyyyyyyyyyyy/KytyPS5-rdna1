@@ -1094,7 +1094,7 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	PrepareGraphicsBindings(stages, std::span {state.color_info, state.color_count});
 	PreparedVertexBuffers vertex_bindings;
 	PreparedIndexBuffer   index_binding;
-	if (!mesh_active) {
+	if (!mesh_active || m_context.GetGraphics().mesh_shader_emulated) {
 		LogDrawPhase(draw.Name(), "PrepareVertexBuffers");
 		vertex_bindings = AcquireVertexBuffers(buffer, state.vertex_info[0]);
 		index_binding   = PrepareIndexBuffer(buffer, index_source);
@@ -1116,7 +1116,7 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	// memory.
 	auto vk_buffer = buffer.Handle();
 	SetDrawDebugPhase(buffer, submit_id, draw, draw.IsIndexed() ? 0x100u : 0x200u);
-	if (!mesh_active) {
+	if (!mesh_active || m_context.GetGraphics().mesh_shader_emulated) {
 		CommitVertexBuffers(vk_buffer, vertex_bindings);
 	}
 	if (state.ps_active && !draw.IsIndexed()) {
@@ -1155,7 +1155,7 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	}
 	if (mesh_active) {
 		if (m_context.GetGraphics().mesh_shader_emulated) {
-			// Emulated bypass
+			EmitDrawPrimitives(ucfg, vk_buffer, draw, emit);
 		} else {
 			vk_buffer.drawMeshTasksEXT(mesh_groups, draw.instance_count, 1);
 		}

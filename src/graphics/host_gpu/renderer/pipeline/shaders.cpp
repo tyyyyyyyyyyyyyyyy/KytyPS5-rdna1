@@ -515,8 +515,13 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	pipeline_info.pNext                    = &rendering_info;
 	pipeline_info.stageCount               = shader_stage_count;
 	pipeline_info.pStages                  = shader_stages;
-	pipeline_info.pVertexInputState        = mesh ? nullptr : &vertex_input_info;
-	pipeline_info.pInputAssemblyState      = mesh ? nullptr : &input_assembly;
+	if (mesh && graphics.mesh_shader_emulated) {
+		pipeline_info.pVertexInputState        = &vertex_input_info;
+		pipeline_info.pInputAssemblyState      = &input_assembly;
+	} else {
+		pipeline_info.pVertexInputState        = mesh ? nullptr : &vertex_input_info;
+		pipeline_info.pInputAssemblyState      = mesh ? nullptr : &input_assembly;
+	}
 	vk::PipelineTessellationStateCreateInfo tessellation_state {};
 	tessellation_state.patchControlPoints =
 	    tessellation ? vs_input_info.tess.input_control_points : 3u;
