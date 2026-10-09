@@ -25,6 +25,45 @@
 #include <atomic>
 #include <cctype>
 #include <cstdio>
+namespace Libs::Graphics {
+void LogMeshEmulationInfo(const char* location, const Libs::Graphics::GraphicContext& graphics,
+                                  const Libs::Graphics::ShaderVertexInputInfo& vertex_info) {
+	auto& mesh = vertex_info.mesh;
+	const auto& limits = graphics.GetPhysicalDeviceProperties().limits;
+	
+	LOGF("\n=== MESH SHADER EMULATION METADATA ===\n");
+	LOGF("Location: %s\n", location);
+	LOGF("\nMesh Shader Properties:\n");
+	LOGF("  logical_stage: Mesh\n");
+	LOGF("  wave_size: %u\n", mesh.wave_size);
+	LOGF("  max_vertices: %u\n", mesh.max_vertices);
+	LOGF("  max_primitives: %u\n", mesh.max_primitives);
+	LOGF("  primitives_per_group: %u\n", mesh.primitives_per_group);
+	LOGF("  vertices_per_group: %u\n", mesh.vertices_per_group);
+	LOGF("  input_primitive: %u\n", mesh.input_primitive);
+	LOGF("  provoking_vertex: %u\n", mesh.provoking_vertex);
+	LOGF("  lds_size_dwords: %u\n", mesh.lds_size_dwords);
+	LOGF("  scratch_size_dwords: %u\n", mesh.scratch_size_dwords);
+	LOGF("  fast_launch: %s\n", mesh.fast_launch ? "true" : "false");
+	LOGF("  threads_num: [%u, %u, %u]\n", mesh.threads_num[0], mesh.threads_num[1], mesh.threads_num[2]);
+	
+	LOGF("\nHost Device Limits:\n");
+	LOGF("  subgroup_size: %u\n", graphics.subgroup_size);
+	LOGF("  maxComputeWorkGroupInvocations: %u\n", limits.maxComputeWorkGroupInvocations);
+	LOGF("  maxComputeSharedMemorySize: %u\n", limits.maxComputeSharedMemorySize);
+	LOGF("  maxStorageBufferRange: %u\n", limits.maxStorageBufferRange);
+	if (graphics.mesh_shader_enabled) {
+		LOGF("  maxMeshWorkGroupInvocations: %u\n", graphics.mesh_shader_properties.maxMeshWorkGroupInvocations);
+		LOGF("  maxMeshSharedMemorySize: %u\n", graphics.mesh_shader_properties.maxMeshSharedMemorySize);
+		LOGF("  maxMeshOutputVertices: %u\n", graphics.mesh_shader_properties.maxMeshOutputVertices);
+		LOGF("  maxMeshOutputPrimitives: %u\n", graphics.mesh_shader_properties.maxMeshOutputPrimitives);
+	}
+	
+	LOGF("\nNote: Output parameters, clip/cull distances, and Layer info available in shader IR\n");
+	LOGF("Note: mesh_groups and draw.instance_count available at draw submission (renderDraw.cpp)\n");
+	LOGF("=====================================\n\n");
+}
+}
 #include <cstring>
 #include <fmt/format.h>
 #include <limits>
@@ -597,7 +636,10 @@ PipelineCache::GraphicsPrograms PipelineCache::GetGraphicsPrograms(
 	}
 	const bool mesh_active = vertex_info[0].logical_stage == ShaderType::Mesh;
 	if (mesh_active) {
-		EXIT_NOT_IMPLEMENTED(!m_graphics.mesh_shader_enabled);
+		if (m_graphics.mesh_shader_emulated) {
+		LogMeshEmulationInfo("pipelineCache.cpp (pipeline preparation)", m_graphics, vertex_info[0]);
+			LOGF("MeshEmulation: bypass pipelineCache exit\n");
+		}
 		auto& mesh              = vertex_info[0].mesh;
 		mesh.host_subgroup_size = m_graphics.subgroup_size;
 		const auto& limits      = m_graphics.mesh_shader_properties;
@@ -605,11 +647,11 @@ PipelineCache::GraphicsPrograms PipelineCache::GetGraphicsPrograms(
 		    mesh.threads_num[0] * mesh.threads_num[1] * mesh.threads_num[2];
 		const auto host_threads = ((logical_threads + mesh.wave_size - 1u) / mesh.wave_size) *
 		                          std::min(mesh.host_subgroup_size, mesh.wave_size);
-		if (host_threads > limits.maxMeshWorkGroupInvocations ||
+		if (!m_graphics.mesh_shader_emulated && (host_threads > limits.maxMeshWorkGroupInvocations ||
 		    host_threads > limits.maxMeshWorkGroupSize[0] ||
 		    mesh.max_vertices > limits.maxMeshOutputVertices ||
 		    mesh.max_primitives > limits.maxMeshOutputPrimitives ||
-		    mesh.lds_size_dwords * sizeof(uint32_t) > limits.maxMeshSharedMemorySize) {
+		    mesh.lds_size_dwords * sizeof(uint32_t) > limits.maxMeshSharedMemorySize)) {
 			EXIT("mesh shader exceeds host limits: threads=%u vertices=%u primitives=%u LDS=%u\n",
 			     host_threads, mesh.max_vertices, mesh.max_primitives, mesh.lds_size_dwords);
 		}

@@ -18,6 +18,10 @@
 #include <magic_enum.hpp>
 
 using namespace Common;
+
+namespace Libs::Graphics {
+extern bool g_force_mesh_emulation;
+}
 using namespace Emulator;
 
 static std::string GetBuildString() {
@@ -71,6 +75,7 @@ static void PrintUsage() {
 	::printf("  --gpu-assisted-validation <t|f>      Bounds-check shader accesses on the GPU.\n"
 	         "                                       Implies --vulkan-validation; very slow.\n");
 	::printf("  --shader-validation <true|false>     Enable shader validation.\n");
+	::printf("  --mesh-emulation                    Force mesh shader emulation even if VK_EXT_mesh_shader is supported.\n");
 	::printf("  --tessellation                      Draw tessellation patches; skipped by default.\n");
 	::printf("  --shader-optimization-type <value>   None, Size, or Performance.\n");
 	::printf("  --shader-log-direction <value>       Silent, Console, or File.\n");
@@ -231,6 +236,12 @@ static bool ParseArgs(int argc, char* argv[], RunOptions& options, bool& show_he
 
 		if (arg == "--playgo-hack") {
 			options.config.playgo_hack_enabled = true;
+			continue;
+		}
+
+	::printf("  --mesh-emulation                    Force mesh shader emulation even if VK_EXT_mesh_shader is supported.\n");
+		if (arg == "--mesh-emulation") {
+			Libs::Graphics::g_force_mesh_emulation = true;
 			continue;
 		}
 

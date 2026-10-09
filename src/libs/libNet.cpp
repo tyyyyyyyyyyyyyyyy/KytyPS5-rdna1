@@ -2899,6 +2899,24 @@ LIB_DEFINE(InitPlatform_1) {
 	LibSharePlay::InitPlatform_1_SharePlay(s);
 }
 
+
+namespace LibNpCppWebApi {
+
+LIB_VERSION("NpCppWebApi", 1, "NpCppWebApi", 1, 1);
+
+static int KYTY_SYSV_ABI NpCppWebApiStub() {
+	return 0;
+}
+
+LIB_DEFINE(InitNet_1_NpCppWebApi) {
+	LIB_FUNC("8x++mBOUeso", NpCppWebApiStub);
+	LIB_FUNC("Y295ygEccqk", NpCppWebApiStub);
+	LIB_FUNC("UYPxv8MIzGo", NpCppWebApiStub);
+	LIB_FUNC("52AlYvq+dmk", NpCppWebApiStub);
+}
+
+} // namespace LibNpCppWebApi
+
 LIB_DEFINE(InitNet_1) {
 	LibNet::InitNet_1_Net(s);
 	LibSsl::InitNet_1_Ssl(s);
@@ -2914,6 +2932,7 @@ LIB_DEFINE(InitNet_1) {
 	LibNpUniversalDataSystem::InitNet_1_NpUniversalDataSystem(s);
 	LibNpGameIntent::InitNet_1_NpGameIntent(s);
 	LibNpWebApi2::InitNet_1_NpWebApi2(s);
+	LibNpCppWebApi::InitNet_1_NpCppWebApi(s);
 	LibGameUpdate::InitNet_1_GameUpdate(s);
 	LibShare::InitNet_1_Share(s);
 	LibJson2::InitNet_1_Json2(s);

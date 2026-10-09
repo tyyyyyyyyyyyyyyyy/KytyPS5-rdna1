@@ -224,7 +224,10 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	                        rendering.stencil_format != vk::Format::eUndefined;
 	EXIT_IF(!vs_input_info.stage);
 	const bool mesh = vs_input_info.stage.program->stage == ShaderType::Mesh;
-	EXIT_NOT_IMPLEMENTED(mesh && !graphics.mesh_shader_enabled);
+	if (mesh && graphics.mesh_shader_emulated) {
+	LogMeshEmulationInfo("shaders.cpp (pipeline creation)", graphics, vs_input_info);
+		LOGF("MeshEmulation: bypass shaders.cpp exit\n");
+	}
 	const bool rect_list =
 	    !mesh && !tessellation && static_params.topology == vk::PrimitiveTopology::ePatchList;
 

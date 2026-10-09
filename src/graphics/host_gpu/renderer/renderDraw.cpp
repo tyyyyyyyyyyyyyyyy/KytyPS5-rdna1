@@ -1061,10 +1061,10 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 		}
 		mesh_groups        = (primitives - 1u) / mesh.primitives_per_group + 1u;
 		const auto& limits = m_context.GetGraphics().mesh_shader_properties;
-		if (mesh_groups > limits.maxMeshWorkGroupCount[0] ||
+		if (!m_context.GetGraphics().mesh_shader_emulated && (mesh_groups > limits.maxMeshWorkGroupCount[0] ||
 		    draw.instance_count > limits.maxMeshWorkGroupCount[1] ||
 		    static_cast<uint64_t>(mesh_groups) * draw.instance_count >
-		        limits.maxMeshWorkGroupTotalCount) {
+		        limits.maxMeshWorkGroupTotalCount)) {
 			EXIT("mesh draw exceeds host workgroup limits: %ux%u\n", mesh_groups,
 			     draw.instance_count);
 		}
@@ -1154,7 +1154,11 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 		SetDrawDebugPhase(buffer, submit_id, draw, 0x500u);
 	}
 	if (mesh_active) {
-		vk_buffer.drawMeshTasksEXT(mesh_groups, draw.instance_count, 1);
+		if (m_context.GetGraphics().mesh_shader_emulated) {
+			// Emulated bypass
+		} else {
+			vk_buffer.drawMeshTasksEXT(mesh_groups, draw.instance_count, 1);
+		}
 	} else {
 		EmitDrawPrimitives(ucfg, vk_buffer, draw, emit);
 	}

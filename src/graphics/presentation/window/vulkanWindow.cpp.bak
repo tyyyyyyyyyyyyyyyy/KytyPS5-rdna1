@@ -2,9 +2,6 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include "common/assert.h"
-namespace Libs::Graphics {
-bool g_force_mesh_emulation = false;
-}
 #include "common/common.h"
 #include "common/emulatorConfig.h"
 #include "common/file.h"
@@ -516,7 +513,6 @@ static vk::Device VulkanCreateDevice(GraphicContext& graphics,
 		    workgroup_layout.workgroupMemoryExplicitLayout != VK_FALSE));
 	}
 	graphics.mesh_shader_enabled = mesh_extension && supported_mesh.meshShader;
-	graphics.mesh_shader_emulated = g_force_mesh_emulation || !graphics.mesh_shader_enabled;
 
 	vk::PhysicalDeviceSubgroupSizeControlProperties subgroup_size_control {};
 

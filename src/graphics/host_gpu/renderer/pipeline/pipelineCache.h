@@ -193,6 +193,9 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
                             const ShaderComputeInputInfo& input_info,
                             vk::ShaderModule compute_module, vk::PipelineCache driver_cache);
 
+void LogMeshEmulationInfo(const char* location, const GraphicContext& graphics,
+                          const ShaderVertexInputInfo& vertex_info);
+
 } // namespace Libs::Graphics
 
 #endif // EMULATOR_SRC_GRAPHICS_HOST_GPU_RENDERER_PIPELINECACHE_H_
