@@ -145,7 +145,7 @@ void GuestGpu::Submit(std::span<const uint32_t> draw_commands,
 	submission.commands          = draw_commands;
 	submission.constant_commands = constant_commands;
 	Enqueue(std::move(submission));
-	WaitForIdle(); // FIX: drain submitted buffer (per-submit)
+	// WaitForIdle() removed for A/B experiment
 }
 
 void GuestGpu::SubmitCompute(uint32_t queue, std::span<const uint32_t> commands) {
@@ -427,6 +427,11 @@ void GuestGpu::Enqueue(Submission submission) {
 	EXIT_IF(submission.queue_id >= QueueCount);
 	Common::LockGuard lock(m_queue_mutex);
 	EXIT_IF(!m_accepting);
+	static uint32_t s_enqueue_log = 0;
+	if (s_enqueue_log++ < 30 || s_enqueue_log % 500 == 0) {
+		LOGF("[GPU_SUBMIT_DIAG] ENQUEUE: qid=%u cmds=%zu sub_count=%u\n",
+		     submission.queue_id, submission.commands.size(), m_submission_count + 1);
+	}
 	m_queues[submission.queue_id].push_back(std::move(submission));
 	m_submission_count++;
 	m_work_available.Signal();
@@ -519,6 +524,11 @@ void GuestGpu::ThreadRun(void* data) {
 		const bool complete = gpu->Process(submission);
 
 		Common::LockGuard lock(gpu->m_queue_mutex);
+		static uint32_t s_proc_log = 0;
+		if (s_proc_log++ < 30 || s_proc_log % 500 == 0 || !complete) {
+			LOGF("[GPU_SUBMIT_DIAG] PROCESS_RESULT: qid=%u complete=%s sub_count=%u\n",
+			     submission.queue_id, complete ? "true" : "false", gpu->m_submission_count);
+		}
 		if (!complete) {
 			submission.blocked = true;
 			gpu->m_queues[submission.queue_id].push_front(std::move(submission));

@@ -1250,6 +1250,15 @@ static int NativeMutexLock(PthreadMutexPrivate* mutex, KernelUseconds* timeout_u
 
 	std::unique_lock lock(mutex->m);
 
+	const bool is_draw_mutex = (mutex->name == "DrawThreadMuxtex");
+	if (is_draw_mutex && mutex->owner == nullptr) {
+		const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+		    std::chrono::steady_clock::now().time_since_epoch()).count();
+		LOGF("[MUTEX_DIAG] ACQUIRE_FIRST: mutex=0x%016" PRIx64 " name=%s owner=0x%016" PRIx64 " (self_id=%d) t_ns=%" PRId64 "\n",
+		     reinterpret_cast<uint64_t>(mutex), mutex->name.c_str(),
+		     reinterpret_cast<uint64_t>(self), self->unique_id, now_ns);
+	}
+
 	if (mutex->owner == self) {
 		if (mutex->type == 2) {
 			if (mutex->count == UINT32_MAX) {
@@ -1268,7 +1277,19 @@ static int NativeMutexLock(PthreadMutexPrivate* mutex, KernelUseconds* timeout_u
 	}
 
 	if (timeout_us == nullptr) {
+		uint32_t wait_iteration = 0;
 		while (mutex->owner != nullptr) {
+			if (is_draw_mutex && (wait_iteration == 0 || wait_iteration % 1000 == 0)) {
+				const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+				    std::chrono::steady_clock::now().time_since_epoch()).count();
+				const auto owner_uid = (mutex->owner != nullptr) ? mutex->owner->unique_id : -1;
+				LOGF("[MUTEX_DIAG] WAIT_BLOCKED: mutex=0x%016" PRIx64 " name=%s waiter=0x%016" PRIx64 " (waiter_id=%d) owner=0x%016" PRIx64 " (owner_id=%d) iter=%u t_ns=%" PRId64 "\n",
+				     reinterpret_cast<uint64_t>(mutex), mutex->name.c_str(),
+				     reinterpret_cast<uint64_t>(self), self->unique_id,
+				     reinterpret_cast<uint64_t>(mutex->owner), owner_uid,
+				     wait_iteration, now_ns);
+			}
+			wait_iteration++;
 			mutex->cv.wait_for(lock, std::chrono::microseconds(SIGNAL_APC_POLL_MICROS));
 			if (mutex->owner != nullptr) {
 				lock.unlock();
@@ -1343,6 +1364,15 @@ static int NativeMutexUnlock(PthreadMutexPrivate* mutex, uint32_t* recurse = nul
 	EXIT_NOT_IMPLEMENTED(self == nullptr);
 
 	std::unique_lock lock(mutex->m);
+
+	if (mutex->name == "DrawThreadMuxtex") {
+		const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+		    std::chrono::steady_clock::now().time_since_epoch()).count();
+		LOGF("[MUTEX_DIAG] UNLOCK_CALLED: mutex=0x%016" PRIx64 " name=%s owner=0x%016" PRIx64 " (owner_id=%d) self=0x%016" PRIx64 " (self_id=%d) count=%u t_ns=%" PRId64 "\n",
+		     reinterpret_cast<uint64_t>(mutex), mutex->name.c_str(),
+		     reinterpret_cast<uint64_t>(mutex->owner), (mutex->owner ? mutex->owner->unique_id : -1),
+		     reinterpret_cast<uint64_t>(self), self->unique_id, mutex->count, now_ns);
+	}
 
 	if (mutex->owner != self) {
 		return EPERM;
