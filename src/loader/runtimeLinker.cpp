@@ -1,4 +1,5 @@
 #include "loader/runtimeLinker.h"
+#include <Zydis/Zydis.h>
 
 #include "common/assert.h"
 #include "common/common.h"
@@ -713,6 +714,24 @@ static bool KytyExceptionHandler(const Common::HostException::ExceptionInfo& exc
 			std::printf("\n");
 		}
 		std::fflush(stdout);
+	}
+	if (info->type == Common::HostException::ExceptionType::IllegalInstruction) {
+		ZydisDecoder            decoder {};
+		ZydisDecodedInstruction instruction {};
+		ZydisDecodedOperand     operands[ZYDIS_MAX_OPERAND_COUNT] {};
+		if (ZYAN_SUCCESS(ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64)) &&
+		    ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, reinterpret_cast<const void*>(info->exception_address),
+		                                         ZYDIS_MAX_INSTRUCTION_LENGTH, &instruction, operands))) {
+			const auto* raw = reinterpret_cast<const uint8_t*>(info->exception_address);
+			std::printf("--- ZYDIS ILLEGAL INSTRUCTION DECODE ---\n");
+			std::printf("Mnemonic: %s, Length: %u\n", ZydisMnemonicGetString(instruction.mnemonic), instruction.length);
+			std::printf("Raw bytes: ");
+			for (unsigned i = 0; i < instruction.length; i++) {
+				std::printf("%02x ", raw[i]);
+			}
+			std::printf("\n----------------------------------------\n");
+			std::fflush(stdout);
+		}
 	}
 	EXIT("Unhandled host exception: type=%u code=%u pc=0x%016" PRIx64
 	     " access=%u address=0x%016" PRIx64 "\n",

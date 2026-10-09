@@ -406,6 +406,7 @@ struct Context {
 	[[nodiscard]] uint64_t Rip() const { return native->Rip; }
 	void                   Advance(size_t length) { native->Rip += length; }
 	[[nodiscard]] void*    Xmm(uint8_t index) const { return &native->Xmm0 + index; }
+	[[nodiscard]] auto&    Rflags() const { return native->EFlags; }
 
 	[[nodiscard]] auto& Gpr(uint8_t index) const {
 		DWORD64* registers[] = {&native->Rax, &native->Rcx, &native->Rdx, &native->Rbx,
@@ -447,6 +448,7 @@ struct Context {
 		return *registers[index];
 	}
 	// Darwin names the XMM file __fpu_xmm0..__fpu_xmm15 instead of exposing an array.
+	[[nodiscard]] auto& Rflags() const { return native->uc_mcontext->__ss.__rflags; }
 	[[nodiscard]] void* Xmm(uint8_t index) const {
 		auto* fs = &native->uc_mcontext->__fs;
 		switch (index) {
@@ -488,6 +490,7 @@ struct Context {
 	void Advance(size_t length) {
 		native->uc_mcontext.gregs[REG_RIP] += static_cast<greg_t>(length);
 	}
+	[[nodiscard]] auto& Rflags() const { return native->uc_mcontext.gregs[REG_EFL]; }
 	[[nodiscard]] void* Xmm(uint8_t index) const {
 		if (native->uc_mcontext.fpregs == nullptr) {
 			return nullptr;
@@ -707,6 +710,90 @@ static bool TryEmulateCpuExtensions(Context& context) {
 			return false;
 		}
 		FlushCacheLine(address, operands[0].mem.segment);
+	} else if ((instruction.mnemonic == ZYDIS_MNEMONIC_ADCX ||
+	            instruction.mnemonic == ZYDIS_MNEMONIC_ADOX) &&
+	           operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+		const auto dst_reg   = operands[0].reg.value;
+		const auto dst_class = ZydisRegisterGetClass(dst_reg);
+		const auto dst_idx   = ZydisRegisterGetId(dst_reg);
+		if ((dst_class != ZYDIS_REGCLASS_GPR32 && dst_class != ZYDIS_REGCLASS_GPR64) || dst_idx < 0 ||
+		    dst_idx >= 16) {
+			return false;
+		}
+		const bool is_64bit = (dst_class == ZYDIS_REGCLASS_GPR64);
+
+		uint64_t src_val = 0;
+		if (operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+			const auto src_reg   = operands[1].reg.value;
+			const auto src_class = ZydisRegisterGetClass(src_reg);
+			const auto src_idx   = ZydisRegisterGetId(src_reg);
+			if ((src_class != ZYDIS_REGCLASS_GPR32 && src_class != ZYDIS_REGCLASS_GPR64) ||
+			    src_idx < 0 || src_idx >= 16) {
+				return false;
+			}
+			src_val = static_cast<uint64_t>(context.Gpr(static_cast<uint8_t>(src_idx)));
+			if (!is_64bit) {
+				src_val &= 0xFFFFFFFFull;
+			}
+		} else if (operands[1].type == ZYDIS_OPERAND_TYPE_MEMORY) {
+			ZydisRegisterContext registers {};
+			for (uint8_t i = 0; i < 16; ++i) {
+				const auto value                         = static_cast<uint64_t>(context.Gpr(i));
+				registers.values[ZYDIS_REGISTER_RAX + i] = value;
+				registers.values[ZYDIS_REGISTER_EAX + i] = static_cast<uint32_t>(value);
+			}
+			uint64_t address = 0;
+			if (!ZYAN_SUCCESS(ZydisCalcAbsoluteAddressEx(&instruction, &operands[1], context.Rip(),
+			                                             &registers, &address))) {
+				return false;
+			}
+			if (is_64bit) {
+				src_val = *reinterpret_cast<const uint64_t*>(address);
+			} else {
+				src_val = *reinterpret_cast<const uint32_t*>(address);
+			}
+		} else {
+			return false;
+		}
+
+		const uint64_t dst_val =
+		    is_64bit ? static_cast<uint64_t>(context.Gpr(static_cast<uint8_t>(dst_idx)))
+		             : (static_cast<uint64_t>(context.Gpr(static_cast<uint8_t>(dst_idx))) &
+		                0xFFFFFFFFull);
+
+		constexpr uint64_t CF_MASK = (1ull << 0);
+		constexpr uint64_t OF_MASK = (1ull << 11);
+		const bool         is_adcx = (instruction.mnemonic == ZYDIS_MNEMONIC_ADCX);
+
+		const uint8_t carry_in = is_adcx ? ((context.Rflags() & CF_MASK) != 0 ? 1 : 0)
+		                                 : ((context.Rflags() & OF_MASK) != 0 ? 1 : 0);
+		uint8_t carry_out = 0;
+
+		if (is_64bit) {
+			unsigned __int128 sum = static_cast<unsigned __int128>(dst_val) +
+			                        static_cast<unsigned __int128>(src_val) + carry_in;
+			carry_out                                 = static_cast<uint8_t>(sum >> 64) & 1;
+			context.Gpr(static_cast<uint8_t>(dst_idx)) = static_cast<uint64_t>(sum);
+		} else {
+			uint64_t sum = static_cast<uint64_t>(static_cast<uint32_t>(dst_val)) +
+			               static_cast<uint64_t>(static_cast<uint32_t>(src_val)) + carry_in;
+			carry_out                                 = static_cast<uint8_t>(sum >> 32) & 1;
+			context.Gpr(static_cast<uint8_t>(dst_idx)) = static_cast<uint64_t>(static_cast<uint32_t>(sum));
+		}
+
+		if (is_adcx) {
+			if (carry_out != 0) {
+				context.Rflags() |= CF_MASK;
+			} else {
+				context.Rflags() &= ~CF_MASK;
+			}
+		} else {
+			if (carry_out != 0) {
+				context.Rflags() |= OF_MASK;
+			} else {
+				context.Rflags() &= ~OF_MASK;
+			}
+		}
 	} else {
 		return false;
 	}

@@ -2904,15 +2904,35 @@ namespace LibNpCppWebApi {
 
 LIB_VERSION("NpCppWebApi", 1, "NpCppWebApi", 1, 1);
 
-static int KYTY_SYSV_ABI NpCppWebApiStub() {
+static int KYTY_SYSV_ABI NpCppWebApi_8x(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+	LOGF("NpCppWebApi [8x++mBOUeso]: a0=0x%016" PRIx64 " a1=0x%016" PRIx64 " a2=0x%016" PRIx64 " a3=0x%016" PRIx64 " a4=0x%016" PRIx64 " a5=0x%016" PRIx64 "\n",
+	     a0, a1, a2, a3, a4, a5);
+	return 0;
+}
+
+static int KYTY_SYSV_ABI NpCppWebApi_Y2(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+	LOGF("NpCppWebApi [Y295ygEccqk]: a0=0x%016" PRIx64 " a1=0x%016" PRIx64 " a2=0x%016" PRIx64 " a3=0x%016" PRIx64 " a4=0x%016" PRIx64 " a5=0x%016" PRIx64 "\n",
+	     a0, a1, a2, a3, a4, a5);
+	return 0;
+}
+
+static int KYTY_SYSV_ABI NpCppWebApi_UY(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+	LOGF("NpCppWebApi [UYPxv8MIzGo]: a0=0x%016" PRIx64 " a1=0x%016" PRIx64 " a2=0x%016" PRIx64 " a3=0x%016" PRIx64 " a4=0x%016" PRIx64 " a5=0x%016" PRIx64 "\n",
+	     a0, a1, a2, a3, a4, a5);
+	return 0;
+}
+
+static int KYTY_SYSV_ABI NpCppWebApi_52(uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3, uint64_t a4, uint64_t a5) {
+	LOGF("NpCppWebApi [52AlYvq+dmk]: a0=0x%016" PRIx64 " a1=0x%016" PRIx64 " a2=0x%016" PRIx64 " a3=0x%016" PRIx64 " a4=0x%016" PRIx64 " a5=0x%016" PRIx64 "\n",
+	     a0, a1, a2, a3, a4, a5);
 	return 0;
 }
 
 LIB_DEFINE(InitNet_1_NpCppWebApi) {
-	LIB_FUNC("8x++mBOUeso", NpCppWebApiStub);
-	LIB_FUNC("Y295ygEccqk", NpCppWebApiStub);
-	LIB_FUNC("UYPxv8MIzGo", NpCppWebApiStub);
-	LIB_FUNC("52AlYvq+dmk", NpCppWebApiStub);
+	LIB_FUNC("8x++mBOUeso", NpCppWebApi_8x);
+	LIB_FUNC("Y295ygEccqk", NpCppWebApi_Y2);
+	LIB_FUNC("UYPxv8MIzGo", NpCppWebApi_UY);
+	LIB_FUNC("52AlYvq+dmk", NpCppWebApi_52);
 }
 
 } // namespace LibNpCppWebApi
