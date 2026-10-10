@@ -1041,6 +1041,9 @@ void RenderExecutor::ExecutePreparedDraw(uint64_t submit_id, CommandBuffer& buff
 	const auto vertex_stages =
 	    std::span {state.vertex_info.data(), state.programs.VertexStageCount()};
 	const bool mesh_active = state.vertex_info[0].stage.program->stage == ShaderType::Mesh;
+	if (mesh_active && m_context.GetGraphics().mesh_shader_emulated) {
+		return;
+	}
 	uint32_t   mesh_groups = 0;
 	if (mesh_active) {
 		const auto& mesh = state.vertex_info[0].mesh;

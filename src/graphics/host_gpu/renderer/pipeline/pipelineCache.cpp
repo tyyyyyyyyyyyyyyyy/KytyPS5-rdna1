@@ -1,6 +1,7 @@
 #include "graphics/host_gpu/renderer/pipeline/pipelineCache.h"
 
 #include "common/assert.h"
+#include <cstdio>
 #include "common/emulatorConfig.h"
 #include "common/file.h"
 #include "common/logging/log.h"
@@ -165,6 +166,8 @@ void DumpShaderSpirv(const char* stage_name, uint64_t shader_hash,
 		return;
 	}
 	file.Write(spirv.data(), spirv.size() * sizeof(uint32_t));
+	std::printf("[DMP] stage=%s hash=%016llx\n", stage_name, static_cast<unsigned long long>(shader_hash));
+	std::fflush(stdout);
 }
 
 void DumpShaderOriginal(const char* stage_name, uint64_t shader_hash,
@@ -184,6 +187,8 @@ void DumpShaderOriginal(const char* stage_name, uint64_t shader_hash,
 		return;
 	}
 	file.Write(code.data(), code.size_bytes());
+	std::printf("[DMP] stage=%s hash=%016llx\n", stage_name, static_cast<unsigned long long>(shader_hash));
+	std::fflush(stdout);
 }
 
 bool ValidateShaderSpirv(const char* label, uint64_t shader_hash,

@@ -145,7 +145,7 @@ void GuestGpu::Submit(std::span<const uint32_t> draw_commands,
 	submission.commands          = draw_commands;
 	submission.constant_commands = constant_commands;
 	Enqueue(std::move(submission));
-	// WaitForIdle() removed for A/B experiment
+	WaitForIdle(); // FIX: drain submitted buffer (per-submit)
 }
 
 void GuestGpu::SubmitCompute(uint32_t queue, std::span<const uint32_t> commands) {

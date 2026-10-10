@@ -1,4 +1,5 @@
 #include "common/assert.h"
+#include <cstdio>
 #include "common/common.h"
 #include "common/emulatorConfig.h"
 #include "common/logging/log.h"
@@ -546,6 +547,16 @@ void CreatePipelineInternal(GraphicContext& graphics, PipelineCache::Pipeline& p
 	if (graphics_debug_dump_enabled()) {
 		LOGF("PipelineTrace: vkCreateGraphicsPipelines done result=%s pipeline=%p\n",
 		     vk::to_string(result).c_str(), static_cast<void*>(pipeline.pipeline));
+	}
+	if (result != vk::Result::eSuccess) {
+	    std::printf("PIPELINE_FATAL result=%s VS=%" PRIu64 " PS=%" PRIu64 " topology=%" PRIu32
+	                " color_count=%" PRIu32 " stages=%" PRIu32 " mesh=%d depth=%d\n",
+	                vk::to_string(result).c_str(), vertex_program.id,
+	                ps_active ? pixel_program.id : 0,
+	                static_cast<uint32_t>(static_params.topology),
+	                static_cast<uint32_t>(rendering.color_count), shader_stage_count,
+	                mesh ? 1 : 0, with_depth ? 1 : 0);
+	    std::fflush(stdout);
 	}
 	EXIT_NOT_IMPLEMENTED(result != vk::Result::eSuccess);
 
