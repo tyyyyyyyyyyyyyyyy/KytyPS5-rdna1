@@ -1,0 +1,365 @@
+diff --git a/src/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp b/src/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp
+index 597ea956..8436f2d1 100644
+--- a/src/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp
++++ b/src/graphics/host_gpu/renderer/pipeline/pipelineCache.cpp
+@@ -18,6 +18,7 @@
+ #include "graphics/shader/shaderCompiler.h"
+ #include "kernel/memory.h"
+ #include "kytyGitVersion.h"
++#include <cstdlib>
+ #include "loader/systemContent.h"
+ 
+ #include <algorithm>
+@@ -545,17 +546,20 @@ void PipelineCache::InitializeDriverCache() {
+ 	if (title_id.empty()) {
+ 		return;
+ 	}
+-	if (KYTY_BUILD != KYTY_BUILD_RELEASE) {
++	const char* force_cache_env = std::getenv("KYTY_FORCE_PIPELINE_CACHE");
++	const bool  force_cache =
++	    force_cache_env != nullptr && std::string_view(force_cache_env) == "1";
++	if (KYTY_BUILD != KYTY_BUILD_RELEASE && !force_cache) {
+ 		PipelineCacheLog("Vulkan pipeline cache: disabled (non-Release build)");
+ 		return;
+ 	}
+ 	const std::string_view git_hash     = KYTY_GIT_HASH;
+ 	const std::string_view git_revision = KYTY_GIT_REVISION;
+-	if (git_hash == "unknown" || git_revision == "unknown") {
++	if ((git_hash == "unknown" || git_revision == "unknown") && !force_cache) {
+ 		PipelineCacheLog("Vulkan pipeline cache: disabled (unknown git revision)");
+ 		return;
+ 	}
+-	if (git_hash.ends_with("-dirty")) {
++	if (git_hash.ends_with("-dirty") && !force_cache) {
+ 		PipelineCacheLog("Vulkan pipeline cache: disabled (dirty build)");
+ 		return;
+ 	}
+@@ -680,8 +684,11 @@ void PipelineCache::Save() {
+ 	}
+ 	PipelineCacheLog("Vulkan pipeline cache: saved {} bytes to {}", payload.size(),
+ 	                 Common::PathToString(m_driver_cache_path));
+-	m_graphics.device.destroyPipelineCache(m_driver_cache, nullptr);
+-	m_driver_cache = nullptr;
++	// CACHE-KEEP-PATCH: keep the driver cache alive when requested so saves can repeat.
++	if (std::getenv("KYTY_CACHE_KEEP_AFTER_SAVE") == nullptr) {
++		m_graphics.device.destroyPipelineCache(m_driver_cache, nullptr);
++		m_driver_cache = nullptr;
++	}
+ }
+ 
+ PipelineCache::GraphicsPrograms PipelineCache::GetGraphicsPrograms(
+diff --git a/src/graphics/presentation/window/vulkanWindow.cpp b/src/graphics/presentation/window/vulkanWindow.cpp
+index e2801abc..c9f686bb 100644
+--- a/src/graphics/presentation/window/vulkanWindow.cpp
++++ b/src/graphics/presentation/window/vulkanWindow.cpp
+@@ -272,7 +272,9 @@ static void VulkanFindPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surfa
+ 		if (fragment_barycentric.fragmentShaderBarycentric != VK_TRUE) {
+ 			LOGF("fragmentShaderBarycentric is not supported (continuing without it)\n");
+ 		}
+-		check_feature(fragment_barycentric.fragmentShaderBarycentric, "fragmentShaderBarycentric");
++		// [LOCAL PATCH RDNA1] fitur ini OPSIONAL (lihat blok di atas). Jangan difatal-kan,
++		// kalau tidak device selection gagal di RX 5700 (RADV tidak mengekspos ekstensinya).
++		// check_feature(fragment_barycentric.fragmentShaderBarycentric, "fragmentShaderBarycentric");
+ #endif
+ 
+ 		check_feature(features12.samplerMirrorClampToEdge, "samplerMirrorClampToEdge",
+diff --git a/src/graphics/presentation/window/window.cpp b/src/graphics/presentation/window/window.cpp
+index a68e2234..45e3dfa0 100644
+--- a/src/graphics/presentation/window/window.cpp
++++ b/src/graphics/presentation/window/window.cpp
+@@ -1,3 +1,4 @@
++#include <csignal>
+ #include "graphics/presentation/window.h"
+ 
+ #include <SDL3/SDL.h>
+@@ -727,6 +728,25 @@ void WindowContext::ProcessEvent(double time_s) {
+ 	}
+ }
+ 
++namespace {
++
++// CACHE-SAVE-PATCH: SIGUSR1 triggers a pipeline-cache save without waiting for a clean exit.
++volatile std::sig_atomic_t g_pipeline_cache_save_requested = 0;
++
++extern "C" void PipelineCacheSaveSignalHandler(int /*sig*/) {
++	g_pipeline_cache_save_requested = 1;
++}
++
++#ifdef SIGUSR1
++struct PipelineCacheSaveSignalInstaller {
++	PipelineCacheSaveSignalInstaller() { std::signal(SIGUSR1, PipelineCacheSaveSignalHandler); }
++};
++
++const PipelineCacheSaveSignalInstaller g_pipeline_cache_save_signal_installer;
++#endif
++
++} // namespace
++
+ void WindowContext::Run() {
+ 	Common::Timer timer;
+ 	timer.Start();
+@@ -740,6 +760,11 @@ void WindowContext::Run() {
+ 	auto               title_frames      = loop.presented_frames.load(std::memory_order_relaxed);
+ 
+ 	while (!loop.need_exit) {
++		if (g_pipeline_cache_save_requested != 0) {
++			g_pipeline_cache_save_requested = 0;
++			Common::LockGuard save_guard(g_window->render_context->GetMutex());
++			g_window->render_context->GetPipelineCache().Save();
++		}
+ 		if (loop.paused.load(std::memory_order_acquire)) {
+ 			if (!timer.IsPaused()) {
+ 				timer.Pause();
+diff --git a/src/graphics/shader/recompiler/backend/spirv/spirvEmitterInternal.h b/src/graphics/shader/recompiler/backend/spirv/spirvEmitterInternal.h
+index 3b77345d..37fa705c 100644
+--- a/src/graphics/shader/recompiler/backend/spirv/spirvEmitterInternal.h
++++ b/src/graphics/shader/recompiler/backend/spirv/spirvEmitterInternal.h
+@@ -152,6 +152,25 @@ struct EmitterState {
+ 	std::vector<InputBinding>  inputs;
+ 	std::vector<OutputBinding> outputs;
+ 	std::vector<uint32_t>      interface_variables;
++
++	// [LOCAL PATCH RDNA1] Loop guard: counter iterasi per loop header guest.
++	// Counter dinaikkan sekali per iterasi; begitu melewati LoopGuardLimit()
++	// semua cabang keluar loop (yang menuju blok merge) dipaksa keluar. Ini
++	// mencegah guest loop tanpa batas iterasi menggantungkan GPU
++	// (ring gfx timeout -> device lost). Cabang yang sudah ada di-"racuni"
++	// kondisinya supaya struktur SPIR-V tetap valid (tanpa predecessor OpPhi
++	// baru dan tanpa blok keluar tambahan di dalam loop).
++	struct LoopGuardHeader {
++		const IR::Block* header   = nullptr;
++		uint32_t         variable = 0;
++	};
++	struct LoopGuardExit {
++		const IR::Block* site     = nullptr;
++		const IR::Block* merge    = nullptr;
++		size_t           variable = 0;
++	};
++	std::vector<LoopGuardHeader> loop_guard_headers;
++	std::vector<LoopGuardExit>   loop_guard_exits;
+ };
+ 
+ uint32_t TypeVoid(EmitterState& state);
+diff --git a/src/graphics/shader/recompiler/backend/spirv/spirvEmitterMemoryHelpers.cpp b/src/graphics/shader/recompiler/backend/spirv/spirvEmitterMemoryHelpers.cpp
+index d7465e87..f2a00508 100644
+--- a/src/graphics/shader/recompiler/backend/spirv/spirvEmitterMemoryHelpers.cpp
++++ b/src/graphics/shader/recompiler/backend/spirv/spirvEmitterMemoryHelpers.cpp
+@@ -1,5 +1,8 @@
+ #include "graphics/shader/recompiler/backend/spirv/spirvEmitterInstructions.h"
+ 
++#include <cstring>
++#include <cstdlib>
++
+ namespace Libs::Graphics::ShaderRecompiler::Spirv::Emitter {
+ 
+ static uint32_t EmitShaderDataDwordLoadAt(EmitterState& state, uint32_t dword_index) {
+@@ -536,7 +539,29 @@ uint32_t EmitAtomicOperation(ValueEmitContext& ctx, const IR::Inst& inst, uint32
+ }
+ 
+ void EmitAtomicMemoryBarrier(EmitterState& state, IR::ResourceKind kind) {
+-	const auto scope  = kind == IR::ResourceKind::Lds ? spv::ScopeWorkgroup : spv::ScopeDevice;
++	// [LOCAL PATCH RDNA1] Barrier pasca-atomic LDS memakai scope SUBGROUP, bukan WORKGROUP.
++	// Barrier workgroup yang berada di dalam cabang divergen membuat wave yang tidak
++	// mengambil cabang tidak pernah mencapai barrier -> deadlock (GPU hang / device lost,
++	// persis "title-screen hang" pada AMD yang diperbaiki Kyty U59 int18).
++	// Perilaku guest (s_waitcnt lgkmcnt) hanya butuh ordering intra-wave, jadi scope
++	// subgroup sudah benar. Env: KYTY_LDS_WAITCNT_BARRIER = subgroup (default) | workgroup | 0
++	static const int lds_barrier_mode = [] {
++		if (const char* env = std::getenv("KYTY_LDS_WAITCNT_BARRIER")) {
++			if (std::strcmp(env, "0") == 0) {
++				return 0;
++			}
++			if (std::strcmp(env, "workgroup") == 0) {
++				return 2;
++			}
++		}
++		return 1;
++	}();
++	if (kind == IR::ResourceKind::Lds && lds_barrier_mode == 0) {
++		return;
++	}
++	const auto scope  = kind != IR::ResourceKind::Lds ? spv::ScopeDevice
++	                    : lds_barrier_mode == 1       ? spv::ScopeSubgroup
++	                                                  : spv::ScopeWorkgroup;
+ 	const auto memory = [&] {
+ 		switch (kind) {
+ 			case IR::ResourceKind::Lds:
+diff --git a/src/graphics/shader/recompiler/backend/spirv/spirvEmitterProgram.cpp b/src/graphics/shader/recompiler/backend/spirv/spirvEmitterProgram.cpp
+index f7111c87..5013f611 100644
+--- a/src/graphics/shader/recompiler/backend/spirv/spirvEmitterProgram.cpp
++++ b/src/graphics/shader/recompiler/backend/spirv/spirvEmitterProgram.cpp
+@@ -4,6 +4,7 @@
+ 
+ #include <algorithm>
+ #include <bit>
++#include <cstdlib>
+ #include <functional>
+ #include <optional>
+ #include <type_traits>
+@@ -83,6 +84,94 @@ void StoreDispatcherPhiEdge(ValueEmitContext& ctx, const DispatcherFunctionState
+ 	}
+ }
+ 
++// [LOCAL PATCH RDNA1] Batas iterasi loop guest (0 = guard dimatikan).
++// Env: KYTY_LOOP_GUARD_LIMIT, default 1000000 iterasi per loop per invokasi.
++// Guest loop tanpa batas iterasi membuat wave berputar selamanya; ring gfx lalu
++// timeout dan seluruh device hilang (vkQueueSubmit ErrorDeviceLost).
++uint32_t LoopGuardLimit() {
++	static const uint32_t limit = [] {
++		if (const char* env = std::getenv("KYTY_LOOP_GUARD_LIMIT")) {
++			return static_cast<uint32_t>(std::strtoul(env, nullptr, 10));
++		}
++		return 1000000u;
++	}();
++	return limit;
++}
++
++void EmitLoopGuardIncrement(EmitterState& state, uint32_t guard_variable) {
++	auto&      builder = state.builder;
++	const auto loaded  = builder.AllocateId();
++	builder.AddFunction(spv::OpLoad, TypeU32(state), loaded, guard_variable);
++	const auto incremented = builder.AllocateId();
++	builder.AddFunction(spv::OpIAdd, TypeU32(state), incremented, loaded, ConstantU32(state, 1));
++	builder.AddFunction(spv::OpStore, guard_variable, incremented);
++}
++
++uint32_t EmitLoopGuardOver(EmitterState& state, uint32_t guard_variable) {
++	auto&      builder = state.builder;
++	const auto loaded  = builder.AllocateId();
++	builder.AddFunction(spv::OpLoad, TypeU32(state), loaded, guard_variable);
++	const auto over = builder.AllocateId();
++	builder.AddFunction(spv::OpUGreaterThan, TypeBool(state), over, loaded,
++	                    ConstantU32(state, LoopGuardLimit()));
++	return over;
++}
++
++// Susun guard: satu counter per loop header guest + daftar cabang keluar loop
++// (blok di dalam loop yang bercabang berkondisi menuju blok merge).
++void CollectLoopGuardSites(EmitterState& state) {
++	state.loop_guard_headers.clear();
++	state.loop_guard_exits.clear();
++	if (LoopGuardLimit() == 0) {
++		return;
++	}
++	for (const auto* header: state.program.blocks) {
++		const auto& term = header->terminator;
++		if (!term.loop_header || term.merge_block == nullptr || term.continue_block == nullptr) {
++			continue;
++		}
++		const auto* merge = term.merge_block;
++		// Blok di dalam loop = reachable dari header tanpa melewati merge.
++		std::unordered_set<const IR::Block*> inside;
++		std::vector<const IR::Block*>       pending {header};
++		while (!pending.empty()) {
++			const auto* current = pending.back();
++			pending.pop_back();
++			if (current == nullptr || current == merge || inside.count(current) != 0) {
++				continue;
++			}
++			inside.insert(current);
++			for (const auto* next: current->ImmSuccessors()) {
++				pending.push_back(next);
++			}
++		}
++		std::vector<EmitterState::LoopGuardExit> found;
++		for (const auto* block: state.program.blocks) {
++			if (inside.count(block) == 0) {
++				continue;
++			}
++			const auto& block_term = block->terminator;
++			if (block_term.kind != CFG::TerminatorKind::ConditionalBranch ||
++			    block_term.true_block == nullptr || block_term.false_block == nullptr) {
++				continue;
++			}
++			if (block_term.true_block == merge || block_term.false_block == merge) {
++				found.push_back(EmitterState::LoopGuardExit {block, merge, 0});
++			}
++		}
++		if (found.empty()) {
++			// Loop tanpa cabang keluar berkondisi: tidak bisa dijaga dengan aman.
++			continue;
++		}
++		const auto index = state.loop_guard_headers.size();
++		state.loop_guard_headers.push_back(EmitterState::LoopGuardHeader {header, state.builder.AllocateId()});
++		for (auto& exit: found) {
++			exit.variable = index;
++			state.loop_guard_exits.push_back(exit);
++		}
++	}
++}
++
+ void EmitReturn(ValueEmitContext& ctx) {
+ 	EmitKillIfPixelValidMaskInactive(ctx.state);
+ 	ctx.state.builder.AddFunction(spv::OpReturn);
+@@ -105,6 +194,18 @@ void EmitStructuredTerminator(ValueEmitContext& ctx, const IR::Block* block) {
+ 		}
+ 	};
+ 
++	auto& state = ctx.state;
++
++	// [LOCAL PATCH RDNA1] Loop guard: naikkan counter iterasi loop ini.
++	if (term.loop_header) {
++		for (const auto& entry: state.loop_guard_headers) {
++			if (entry.header == block) {
++				EmitLoopGuardIncrement(state, entry.variable);
++				break;
++			}
++		}
++	}
++
+ 	switch (term.kind) {
+ 		case CFG::TerminatorKind::Branch: {
+ 			const auto* target = term.true_block;
+@@ -125,7 +226,27 @@ void EmitStructuredTerminator(ValueEmitContext& ctx, const IR::Block* block) {
+ 			}
+ 			const auto condition = ctx.Def(block->condition);
+ 			emit_merge();
+-			ctx.state.builder.AddFunction(spv::OpBranchConditional, condition,
++			auto branch_condition = condition;
++			// [LOCAL PATCH RDNA1] Paksa keluar loop bila counter iterasi sudah
++			// melewati batas: cabang menuju blok merge dibuat selalu diambil.
++			for (const auto& exit: state.loop_guard_exits) {
++				if (exit.site != block) {
++					continue;
++				}
++				const auto over = EmitLoopGuardOver(state, state.loop_guard_headers[exit.variable].variable);
++				const auto next = state.builder.AllocateId();
++				if (term.true_block == exit.merge) {
++					state.builder.AddFunction(spv::OpLogicalOr, TypeBool(state), next,
++					                          branch_condition, over);
++				} else {
++					const auto in_range = state.builder.AllocateId();
++					state.builder.AddFunction(spv::OpLogicalNot, TypeBool(state), in_range, over);
++					state.builder.AddFunction(spv::OpLogicalAnd, TypeBool(state), next,
++					                          branch_condition, in_range);
++				}
++				branch_condition = next;
++			}
++			ctx.state.builder.AddFunction(spv::OpBranchConditional, branch_condition,
+ 			                              true_block->Definition(), false_block->Definition());
+ 			return;
+ 		}
+@@ -672,6 +793,10 @@ void EmitProgram(EmitterState& state) {
+ 			high.scratch_u32_variable = state.builder.AllocateId();
+ 		}
+ 	}
++	// [LOCAL PATCH RDNA1] Siapkan counter loop guard + titik keluarnya.
++	if (!state.program.dispatcher_fallback) {
++		CollectLoopGuardSites(state);
++	}
+ 	state.builder.AddFunction(spv::OpFunction, TypeVoid(state),
+ 	                          state.mesh_guest_func != 0 ? state.mesh_guest_func : state.main_func,
+ 	                          spv::FunctionControlMaskNone, TypeFunction(state));
+@@ -695,6 +820,12 @@ void EmitProgram(EmitterState& state) {
+ 		                          TypePointer(state, spv::StorageClassFunction, TypeU32(state)),
+ 		                          state.pixel_valid_mask_variable, spv::StorageClassFunction);
+ 	}
++	for (const auto& entry: state.loop_guard_headers) {
++		// Initializer 0: counter di-reset setiap pemanggilan fungsi.
++		state.builder.AddFunction(spv::OpVariable,
++		                          TypePointer(state, spv::StorageClassFunction, TypeU32(state)),
++		                          entry.variable, spv::StorageClassFunction, ConstantU32(state, 0));
++	}
+ 	for (uint32_t half = 0; half < state.lane_count; half++) {
+ 		auto& lane = half == 0 ? ctx : high;
+ 		if (state.program.dispatcher_fallback) {
