@@ -263,6 +263,12 @@ static void VulkanFindPhysicalDevice(vk::Instance instance, vk::SurfaceKHR surfa
 #endif
 #if !defined(__APPLE__)
 		check_feature(device_features2.features.depthClamp, "depthClamp");
+		// [LOCAL PATCH] VK_KHR_fragment_shader_barycentric dibuat OPSIONAL agar
+		// emulator tetap jalan di driver yang tidak mengekspos ekstensi ini
+		// (mis. RADV pada GPU RDNA1 seperti RX 5700).
+		if (fragment_barycentric.fragmentShaderBarycentric != VK_TRUE) {
+			LOGF("fragmentShaderBarycentric is not supported (continuing without it)\n");
+		}
 		check_feature(fragment_barycentric.fragmentShaderBarycentric, "fragmentShaderBarycentric");
 #endif
 
@@ -608,7 +614,8 @@ static vk::Device VulkanCreateDevice(GraphicContext& graphics,
 #else
 	vk::PhysicalDeviceFragmentShaderBarycentricFeaturesKHR fragment_barycentric {};
 	fragment_barycentric.pNext                     = &features12;
-	fragment_barycentric.fragmentShaderBarycentric = VK_TRUE;
+	// [LOCAL PATCH] jangan aktifkan fitur barycentric (biar device tanpa dukungan tetap bisa).
+	fragment_barycentric.fragmentShaderBarycentric = VK_FALSE;
 	robustness2.pNext                              = &fragment_barycentric;
 #endif
 	if (robustness2_ext_enabled) {
@@ -971,7 +978,8 @@ void WindowContext::CreateVulkan() {
 #else
 	device_extensions.push_back(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME);
 	device_extensions.push_back(VK_EXT_COLOR_WRITE_ENABLE_EXTENSION_NAME);
-	device_extensions.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
+	// [LOCAL PATCH] jangan minta ekstensi barycentric agar device tanpa dukungan tetap lolos.
+	// device_extensions.push_back(VK_KHR_FRAGMENT_SHADER_BARYCENTRIC_EXTENSION_NAME);
 #endif
 
 #ifdef KYTY_ENABLE_DEBUG_PRINTF
